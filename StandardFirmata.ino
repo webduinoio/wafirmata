@@ -26,6 +26,7 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <Firmata.h>
+#include <MaxMatrix.h>
 
 #define I2C_WRITE                   B00000000
 #define I2C_READ                    B00001000
@@ -43,6 +44,7 @@
 /*==============================================================================
  * GLOBAL VARIABLES
  *============================================================================*/
+MaxMatrix *mm;
 
 /* analog inputs */
 int analogInputsToReport = 0; // bitwise array to store pin reporting
@@ -423,6 +425,32 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
       Firmata.write(END_SYSEX);
       break;
+    case 4:
+      switch (argv[0]) {
+        case 8:
+          // 00: init , 01:display , 02: clear
+          switch (argv[1]) { //argv[1] = cmd;
+            case 0: //init f0040800060708f7
+              if (mm == NULL) {
+                mm = new MaxMatrix();
+                mm->init(argv[2], argv[3], argv[4], 1);
+              }
+              break;
+            case 1: //display f0040801FF02040810204080f7
+              for (byte i = 0; i < 16; i = i + 2) {
+                mm->setColumn(i / 2, asc2hex(argv + i + 2));
+              }
+              break;
+            case 2: //clear f0040802f7
+              mm->clear();
+              break;
+            case 3: //Intensity f00408030ff7
+              mm->setIntensity(argv[2]);
+              break;
+          }
+          break;
+      }
+      break;
     case I2C_REQUEST:
       mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
       if (argv[1] & I2C_10BIT_ADDRESS_MODE_MASK) {
@@ -739,4 +767,20 @@ void loop()
       }
     }
   }
+}
+
+byte asc2hex(byte* array) {
+  byte b = 0;
+  if (*array >= 0x41 && *array <= 0x66) {
+    b = (*array & 0x0F) + 9 << 4;
+  } else if (*array >= 0x30 && *array <= 0x39) {
+    b = (*array - 0x30) << 4;
+  }
+  array++;
+  if (*array >= 0x41 && *array <= 0x66) {
+    b |= (*array & 0x0F) + 9;
+  } else if (*array >= 0x30 && *array <= 0x39) {
+    b |= (*array - 0x30);
+  }
+  return b;
 }
