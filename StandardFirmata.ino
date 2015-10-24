@@ -402,6 +402,27 @@ void sysexCallback(byte command, byte argc, byte *argv)
   unsigned int delayTime;
 
   switch (command) {
+    case 1:
+      pinMode(argv[0] & 0x0f, OUTPUT);
+      pinMode(argv[1] & 0x0f, INPUT);
+      digitalWrite(argv[0] & 0x0f, LOW);
+      delayMicroseconds(2);
+      digitalWrite(argv[0] & 0x0f, HIGH);
+      delayMicroseconds(10);
+      digitalWrite(argv[0] & 0x0f, LOW);
+      Firmata.write(START_SYSEX);
+      Firmata.write(1);
+      Firmata.write(argv[0] & 0x0f);
+      Firmata.write(argv[1] & 0x0f);
+      {
+        String strData = String(pulseIn(argv[1] & 0x0f, HIGH) / 58);
+        data = strData.length();
+        for (int i = 0; i < data; i++) {
+          Firmata.write(strData.charAt(i));
+        }
+      }
+      Firmata.write(END_SYSEX);
+      break;
     case I2C_REQUEST:
       mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
       if (argv[1] & I2C_10BIT_ADDRESS_MODE_MASK) {
