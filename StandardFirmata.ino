@@ -449,6 +449,11 @@ void sysexCallback(byte command, byte argc, byte *argv)
               break;
           }
           break;
+        case 7: //Buzzer f004070b131805f7
+          pinMode(argv[1], OUTPUT);
+          tone(argv[1], (String(argv[2], HEX)).toInt() * 100 +
+               (String(argv[3], HEX)).toInt(), argv[4] * 100);
+          break;
       }
       break;
     case I2C_REQUEST:
