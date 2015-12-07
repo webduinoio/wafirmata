@@ -4,7 +4,7 @@
   any host computer software package.
 
   To download a host software package, please clink on the following link
-  to open the download page in your default browser.
+  to open the list of Firmata client libraries your default browser.
 
   https://github.com/firmata/arduino#firmata-client-libraries
 
@@ -20,15 +20,13 @@
 
   See file LICENSE.txt for further informations on licensing terms.
 
-  Last updated by Jeff Hoefs: April 11, 2015
+  Last updated by Jeff Hoefs: August 9th, 2015
 */
 
 #include <Servo.h>
 #include <Wire.h>
 #include <Firmata.h>
-#include <MaxMatrix.h>
-#include <SPI.h>
-#include <MFRC522.h>
+#include <dht.h>
 
 #define I2C_WRITE                   B00000000
 #define I2C_READ                    B00001000
@@ -36,26 +34,17 @@
 #define I2C_STOP_READING            B00011000
 #define I2C_READ_WRITE_MODE_MASK    B00011000
 #define I2C_10BIT_ADDRESS_MODE_MASK B00100000
-#define MAX_QUERIES                 8
-#define REGISTER_NOT_SPECIFIED      -1
-
-#define RST_PIN         9
-#define SS_PIN          10
+#define I2C_MAX_QUERIES             8
+#define I2C_REGISTER_NOT_SPECIFIED  -1
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL 10
 
 
 /*==============================================================================
- * GLOBAL VARIABLES
- *============================================================================*/
-unsigned char strhex[17] = "0123456789ABCDEF";
-byte rfidTouchScan = 0;
-boolean rfidTouch = false;
-boolean rfidEnable = false;
-
-MFRC522 *mfrc522;
-MaxMatrix *mm;
+   GLOBAL VARIABLES
+  ============================================================================*/
+dht DHT;
 
 /* analog inputs */
 int analogInputsToReport = 0; // bitwise array to store pin reporting
@@ -82,7 +71,7 @@ struct i2c_device_info {
 };
 
 /* for i2c read continuous more */
-i2c_device_info query[MAX_QUERIES];
+i2c_device_info query[I2C_MAX_QUERIES];
 
 byte i2cRxData[32];
 boolean isI2CEnabled = false;
@@ -118,8 +107,8 @@ byte wireRead(void)
 }
 
 /*==============================================================================
- * FUNCTIONS
- *============================================================================*/
+   FUNCTIONS
+  ============================================================================*/
 
 void attachServo(byte pin, int minPulse, int maxPulse)
 {
@@ -163,7 +152,7 @@ void readAndReportData(byte address, int theRegister, byte numBytes) {
   // allow I2C requests that don't require a register read
   // for example, some devices using an interrupt pin to signify new data available
   // do not always require the register read so upon interrupt you call Wire.requestFrom()
-  if (theRegister != REGISTER_NOT_SPECIFIED) {
+  if (theRegister != I2C_REGISTER_NOT_SPECIFIED) {
     Wire.beginTransmission(address);
     wireWrite((byte)theRegister);
     Wire.endTransmission();
@@ -208,13 +197,13 @@ void outputPort(byte portNumber, byte portValue, byte forceSend)
 }
 
 /* -----------------------------------------------------------------------------
- * check all the active digital inputs for change of state, then add any events
- * to the Serial output queue using Serial.print() */
+   check all the active digital inputs for change of state, then add any events
+   to the Serial output queue using Serial.print() */
 void checkDigitalInputs(void)
 {
   /* Using non-looping code allows constants to be given to readPort().
-   * The compiler will apply substantial optimizations if the inputs
-   * to readPort() are compile-time constants. */
+     The compiler will apply substantial optimizations if the inputs
+     to readPort() are compile-time constants. */
   if (TOTAL_PORTS > 0 && reportPINs[0]) outputPort(0, readPort(0, portConfigInputs[0]), false);
   if (TOTAL_PORTS > 1 && reportPINs[1]) outputPort(1, readPort(1, portConfigInputs[1]), false);
   if (TOTAL_PORTS > 2 && reportPINs[2]) outputPort(2, readPort(2, portConfigInputs[2]), false);
@@ -235,8 +224,8 @@ void checkDigitalInputs(void)
 
 // -----------------------------------------------------------------------------
 /* sets the pin mode to the correct state and sets the relevant bits in the
- * two bit-arrays that track Digital I/O and PWM status
- */
+   two bit-arrays that track Digital I/O and PWM status
+*/
 void setPinModeCallback(byte pin, int mode)
 {
   if (pinConfig[pin] == IGNORE)
@@ -362,7 +351,7 @@ void digitalWriteCallback(byte port, int value)
 
 // -----------------------------------------------------------------------------
 /* sets bits in a bit array (int) to toggle the reporting of the analogIns
- */
+*/
 //void FirmataClass::setAnalogPinReporting(byte pin, byte state) {
 //}
 void reportAnalogCallback(byte analogPin, int value)
@@ -403,8 +392,8 @@ void reportDigitalCallback(byte port, int value)
 }
 
 /*==============================================================================
- * SYSEX-BASED commands
- *============================================================================*/
+   SYSEX-BASED commands
+  ============================================================================*/
 
 void sysexCallback(byte command, byte argc, byte *argv)
 {
@@ -413,6 +402,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
   byte data;
   int slaveRegister;
   unsigned int delayTime;
+  byte strLen;
+  String strData;
 
   switch (command) {
     case 1:
@@ -438,53 +429,19 @@ void sysexCallback(byte command, byte argc, byte *argv)
       break;
     case 4:
       switch (argv[0]) {
-        case 15:
-          switch (argv[1]) { //argv[1] = cmd;
-            case 0: // init RFID
-              if (mfrc522 == NULL) {
-                mfrc522 = new MFRC522(SS_PIN, RST_PIN);
-                SPI.begin();
-                mfrc522->PCD_Init();
-              }
-              break;
-            case 1: // start RFID
-              if (mfrc522 != NULL) {
-                rfidEnable = true;
-              }
-              break;
-            case 2: // stop RFID
-              if (mfrc522 != NULL) {
-                rfidEnable = false;
-              }
-              break;
-            case 3: // change RFID
-              if (mfrc522 != NULL) {
-                
-
-              }
-              break;
+        case 4:
+          DHT.read11(argv[1]);
+          Firmata.write(START_SYSEX);
+          Firmata.write(4);
+          Firmata.write(4);
+          Firmata.write(argv[1]);
+          strData = String(int(DHT.humidity * 100)) + String(int(DHT.temperature * 100));
+          //Serial.println(strData);
+          strLen = strData.length();
+          for (int i = 0; i < strLen; i++) {
+            Firmata.write(strData.charAt(i));
           }
-        case 8:
-          // 00: init , 01:display , 02: clear
-          switch (argv[1]) { //argv[1] = cmd;
-            case 0: //init f0040800060708f7
-              if (mm == NULL) {
-                mm = new MaxMatrix();
-                mm->init(argv[2], argv[3], argv[4], 1);
-              }
-              break;
-            case 1: //display f0040801FF02040810204080f7
-              for (byte i = 0; i < 16; i = i + 2) {
-                mm->setColumn(i / 2, asc2hex(argv + i + 2));
-              }
-              break;
-            case 2: //clear f0040802f7
-              mm->clear();
-              break;
-            case 3: //Intensity f00408030ff7
-              mm->setIntensity(argv[2]);
-              break;
-          }
+          Firmata.write(END_SYSEX);
           break;
         case 7: //Buzzer f004070b131805f7
           pinMode(argv[1], OUTPUT);
@@ -521,13 +478,13 @@ void sysexCallback(byte command, byte argc, byte *argv)
           }
           else {
             // a slave register is NOT specified
-            slaveRegister = REGISTER_NOT_SPECIFIED;
+            slaveRegister = I2C_REGISTER_NOT_SPECIFIED;
             data = argv[2] + (argv[3] << 7);  // bytes to read
           }
           readAndReportData(slaveAddress, (int)slaveRegister, data);
           break;
         case I2C_READ_CONTINUOUSLY:
-          if ((queryIndex + 1) >= MAX_QUERIES) {
+          if ((queryIndex + 1) >= I2C_MAX_QUERIES) {
             // too many queries, just ignore
             Firmata.sendString("too many queries");
             break;
@@ -539,7 +496,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
           }
           else {
             // a slave register is NOT specified
-            slaveRegister = (int)REGISTER_NOT_SPECIFIED;
+            slaveRegister = (int)I2C_REGISTER_NOT_SPECIFIED;
             data = argv[2] + (argv[3] << 7);  // bytes to read
           }
           queryIndex++;
@@ -565,7 +522,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
             }
 
             for (byte i = queryIndexToSkip; i < queryIndex + 1; i++) {
-              if (i < MAX_QUERIES) {
+              if (i < I2C_MAX_QUERIES) {
                 query[i].addr = query[i + 1].addr;
                 query[i].reg = query[i + 1].reg;
                 query[i].bytes = query[i + 1].bytes;
@@ -705,8 +662,8 @@ void disableI2CPins() {
 }
 
 /*==============================================================================
- * SETUP()
- *============================================================================*/
+   SETUP()
+  ============================================================================*/
 
 void systemResetCallback()
 {
@@ -745,13 +702,13 @@ void systemResetCallback()
   servoCount = 0;
 
   /* send digital inputs to set the initial state on the host computer,
-   * since once in the loop(), this firmware will only send on change */
+     since once in the loop(), this firmware will only send on change */
   /*
-  TODO: this can never execute, since no pins default to digital input
+    TODO: this can never execute, since no pins default to digital input
         but it will be needed when/if we support EEPROM stored config
-  for (byte i=0; i < TOTAL_PORTS; i++) {
+    for (byte i=0; i < TOTAL_PORTS; i++) {
     outputPort(i, readPort(i, portConfigInputs[i]), true);
-  }
+    }
   */
   isResetting = false;
 }
@@ -768,46 +725,32 @@ void setup()
   Firmata.attach(START_SYSEX, sysexCallback);
   Firmata.attach(SYSTEM_RESET, systemResetCallback);
 
+  // to use a port other than Serial, such as Serial1 on an Arduino Leonardo or Mega,
+  // Call begin(baud) on the alternate serial port and pass it to Firmata to begin like this:
+  // Serial1.begin(57600);
+  // Firmata.begin(Serial1);
+  // then comment out or remove lines 701 - 704 below
+
   Firmata.begin(57600);
+  while (!Serial) {
+    ; // wait for serial port to connect. Only needed for ATmega32u4-based boards (Leonardo, etc).
+  }
   systemResetCallback();  // reset to default config
 }
 
 /*==============================================================================
- * LOOP()
- *============================================================================*/
+   LOOP()
+  ============================================================================*/
 void loop()
 {
   byte pin, analogPin;
 
   /* DIGITALREAD - as fast as possible, check for changes and output them to the
-   * FTDI buffer using Serial.print()  */
+     FTDI buffer using Serial.print()  */
   checkDigitalInputs();
 
-  if (rfidEnable) {
-    if (mfrc522->PICC_IsNewCardPresent() && mfrc522->PICC_ReadCardSerial()) {
-      if (!rfidTouch) {
-        Firmata.write(START_SYSEX);
-        byte len = mfrc522->uid.size;
-        for (byte i = 0; i < len; i++) {
-          Firmata.write(strhex[mfrc522->uid.uidByte[i] >> 4]);
-          Firmata.write(strhex[mfrc522->uid.uidByte[i] & 0x0f]);
-        }
-        Firmata.write(END_SYSEX);
-        rfidTouch = true;
-      }
-      rfidTouchScan = 0;
-    } else {
-      if (rfidTouchScan++ == 2 && rfidTouch) {
-        rfidTouch = false;
-        Firmata.write(START_SYSEX);
-        Firmata.write(0);
-        Firmata.write(END_SYSEX);
-      }
-    }
-  }
-
   /* STREAMREAD - processing incoming messagse as soon as possible, while still
-   * checking digital inputs.  */
+     checking digital inputs.  */
   while (Firmata.available())
     Firmata.processInput();
 
@@ -832,20 +775,4 @@ void loop()
       }
     }
   }
-}
-
-byte asc2hex(byte * array) {
-  byte b = 0;
-  if (*array >= 0x41 && *array <= 0x66) {
-    b = (*array & 0x0F) + 9 << 4;
-  } else if (*array >= 0x30 && *array <= 0x39) {
-    b = (*array - 0x30) << 4;
-  }
-  array++;
-  if (*array >= 0x41 && *array <= 0x66) {
-    b |= (*array & 0x0F) + 9;
-  } else if (*array >= 0x30 && *array <= 0x39) {
-    b |= (*array - 0x30);
-  }
-  return b;
 }
