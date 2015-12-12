@@ -55,6 +55,7 @@ dht DHT;
 MaxMatrix *mm;
 MFRC522 *mfrc522;
 Joypad *joypad;
+IRsend irsend;
 IRrecv *irrecv = NULL;
 decode_results results;
 
@@ -461,8 +462,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
           }
           switch (argv[1]) { //argv[1] = codeType
             case 4: //NEC
-              //irsend.sendNEC(0x20DF10EF, bits);
-              //irsend.sendNEC(sendCode, bits);
+              irsend.sendNEC(sendCode, bits);
               if (irrecv != NULL) {
                 irrecv->enableIRIn();
               }
