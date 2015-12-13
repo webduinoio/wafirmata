@@ -387,7 +387,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
   String strData;
   //ir send
   byte codeType, bits;
-  unsigned long sendCode;
+  unsigned long sendCode = 0;
   switch (command) {
     case 1:
       pinMode(argv[0] & 0x0f, OUTPUT);
@@ -456,9 +456,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
         case 9: //IRremote
           codeType = argv[1];
           bits = argv[2];
-          sendCode = argv[3];
-          for (int i = 4; i <= 6; i++) {
-            sendCode = (sendCode << 8) | argv[i];
+          for (int i = 3; i <= 10; i=i+2) {
+            sendCode = (sendCode << 8) | asc2hex(&argv[i]);
           }
           switch (argv[1]) { //argv[1] = codeType
             case 4: //NEC
