@@ -10,7 +10,7 @@
 
   Copyright (C) 2006-2008 Hans-Christoph Steiner.  All rights reserved.
   Copyright (C) 2010-2011 Paul Stoffregen.  All rights reserved.
-  Copyright (C) 2009 Shigeru Kobayashi.  All rights reserved.
+  Copyright (C) 2009 Shigeru Kobayashi.  All rights reserveond.
   Copyright (C) 2009-2015 Jeff Hoefs.  All rights reserved.
 
   This library is free software; you can redistribute it and/or
@@ -26,7 +26,7 @@
 #include <IRremote.h>
 #include <Wire.h>
 #include <Firmata.h>
-#include <dht.h> 
+#include <dht.h>
 #include <MaxMatrix.h>
 #include <SPI.h>
 #include <MFRC522.h>
@@ -202,7 +202,7 @@ void checkDigitalInputs(void)
 */
 void setPinModeCallback(byte pin, int mode)
 {
-  if (pinConfig[pin] == IGNORE)
+  if (pinConfig[pin] == PIN_MODE_IGNORE)
     return;
 
   if (pinConfig[pin] == I2C && isI2CEnabled && mode != I2C) {
@@ -456,7 +456,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
         case 9: //IRremote
           codeType = argv[1];
           bits = argv[2];
-          for (int i = 3; i <= 10; i=i+2) {
+          for (int i = 3; i <= 10; i = i + 2) {
             sendCode = (sendCode << 8) | asc2hex(&argv[i]);
           }
           switch (argv[1]) { //argv[1] = codeType

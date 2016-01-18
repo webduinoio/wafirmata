@@ -23,14 +23,13 @@
   Last updated by Jeff Hoefs: August 9th, 2015
 */
 
-#include <IRremote.h>
+#include <Servo.h>
 #include <Wire.h>
 #include <Firmata.h>
-#include <dht.h> 
+#include <dht.h>
 #include <MaxMatrix.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <Joypad.h>
 
 #define I2C_WRITE                   B00000000
 #define I2C_READ                    B00001000
@@ -54,11 +53,6 @@
 dht DHT;
 MaxMatrix *mm;
 MFRC522 *mfrc522;
-Joypad *joypad;
-IRsend irsend;
-IRrecv *irrecv = NULL;
-decode_results results;
-
 unsigned char strhex[17] = "0123456789ABCDEF";
 byte rfidTouchScan = 0;
 boolean rfidTouch = false;
@@ -97,6 +91,12 @@ signed char queryIndex = -1;
 // default delay time between i2c read request and Wire.requestFrom()
 unsigned int i2cReadDelayTime = 0;
 
+Servo servos[MAX_SERVOS];
+byte servoPinMap[TOTAL_PINS];
+byte detachedServos[MAX_SERVOS];
+byte detachedServoCount = 0;
+byte servoCount = 0;
+
 boolean isResetting = false;
 
 /* utility functions */
@@ -121,6 +121,44 @@ byte wireRead(void)
 /*==============================================================================
    FUNCTIONS
   ============================================================================*/
+
+void attachServo(byte pin, int minPulse, int maxPulse)
+{
+  if (servoCount < MAX_SERVOS) {
+    // reuse indexes of detached servos until all have been reallocated
+    if (detachedServoCount > 0) {
+      servoPinMap[pin] = detachedServos[detachedServoCount - 1];
+      if (detachedServoCount > 0) detachedServoCount--;
+    } else {
+      servoPinMap[pin] = servoCount;
+      servoCount++;
+    }
+    if (minPulse > 0 && maxPulse > 0) {
+      servos[servoPinMap[pin]].attach(PIN_TO_DIGITAL(pin), minPulse, maxPulse);
+    } else {
+      servos[servoPinMap[pin]].attach(PIN_TO_DIGITAL(pin));
+    }
+  } else {
+    Firmata.sendString("Max servos attached");
+  }
+}
+
+void detachServo(byte pin)
+{
+  servos[servoPinMap[pin]].detach();
+  // if we're detaching the last servo, decrement the count
+  // otherwise store the index of the detached servo
+  if (servoPinMap[pin] == servoCount && servoCount > 0) {
+    servoCount--;
+  } else if (servoCount > 0) {
+    // keep track of detached servos because we want to reuse their indexes
+    // before incrementing the count of attached servos
+    detachedServoCount++;
+    detachedServos[detachedServoCount - 1] = servoPinMap[pin];
+  }
+
+  servoPinMap[pin] = 255;
+}
 
 void readAndReportData(byte address, int theRegister, byte numBytes) {
   // allow I2C requests that don't require a register read
@@ -210,6 +248,11 @@ void setPinModeCallback(byte pin, int mode)
     // the following if statements should reconfigure the pins properly
     disableI2CPins();
   }
+  if (IS_PIN_DIGITAL(pin) && mode != SERVO) {
+    if (servoPinMap[pin] < MAX_SERVOS && servos[servoPinMap[pin]].attached()) {
+      detachServo(pin);
+    }
+  }
   if (IS_PIN_ANALOG(pin)) {
     reportAnalogCallback(PIN_TO_ANALOG(pin), mode == ANALOG ? 1 : 0); // turn on/off reporting
   }
@@ -252,6 +295,16 @@ void setPinModeCallback(byte pin, int mode)
         pinConfig[pin] = PWM;
       }
       break;
+    case SERVO:
+      if (IS_PIN_DIGITAL(pin)) {
+        pinConfig[pin] = SERVO;
+        if (servoPinMap[pin] == 255 || !servos[servoPinMap[pin]].attached()) {
+          // pass -1 for min and max pulse values to use default values set
+          // by Servo library
+          attachServo(pin, -1, -1);
+        }
+      }
+      break;
     case I2C:
       if (IS_PIN_I2C(pin)) {
         // mark the pin as i2c
@@ -269,6 +322,11 @@ void analogWriteCallback(byte pin, int value)
 {
   if (pin < TOTAL_PINS) {
     switch (pinConfig[pin]) {
+      case SERVO:
+        if (IS_PIN_DIGITAL(pin))
+          servos[servoPinMap[pin]].write(value);
+        pinState[pin] = value;
+        break;
       case PWM:
         if (IS_PIN_PWM(pin))
           analogWrite(PIN_TO_PWM(pin), value);
@@ -348,33 +406,6 @@ void reportDigitalCallback(byte port, int value)
 /*==============================================================================
    SYSEX-BASED commands
   ============================================================================*/
-void setIRrecv(byte pin) {
-  irrecv = new IRrecv(pin);
-}
-
-void irReceiver() {
-  byte sendByte = 0;
-  unsigned long result = 0;
-  if (irrecv != NULL) {
-    if (irrecv->decode(&results)) {
-      result = results.value;
-      Firmata.write(START_SYSEX);
-      Firmata.write(0x04);
-      Firmata.write(0x10);
-      for (int i = 3; i >= 0; i--) {
-        sendByte = (result >> (8 * i)) & 0xff;
-        char msb =  (sendByte >> 4) + 0x30;
-        if (msb > 0x39) msb += 7;
-        Firmata.write(msb);
-        char lsb =  (sendByte & 0x0f) + 0x30;
-        if (lsb > 0x39) lsb += 7;
-        Firmata.write(lsb);
-      }
-      Firmata.write(END_SYSEX);
-      irrecv->resume(); // Receive the next value
-    }
-  }
-}
 
 void sysexCallback(byte command, byte argc, byte *argv)
 {
@@ -385,9 +416,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
   unsigned int delayTime;
   byte strLen;
   String strData;
-  //ir send
-  byte codeType, bits;
-  unsigned long sendCode = 0;
+
   switch (command) {
     case 1:
       pinMode(argv[0] & 0x0f, OUTPUT);
@@ -453,38 +482,6 @@ void sysexCallback(byte command, byte argc, byte *argv)
               break;
           }
           break;
-        case 9: //IRremote
-          codeType = argv[1];
-          bits = argv[2];
-          for (int i = 3; i <= 10; i=i+2) {
-            sendCode = (sendCode << 8) | asc2hex(&argv[i]);
-          }
-          switch (argv[1]) { //argv[1] = codeType
-            case 4: //NEC
-              irsend.sendNEC(sendCode, bits);
-              if (irrecv != NULL) {
-                irrecv->enableIRIn();
-              }
-              break;
-          }
-          Firmata.write(START_SYSEX);
-          Firmata.write(9);
-          Firmata.write('O');
-          Firmata.write('K');
-          Firmata.write(END_SYSEX);
-          break;
-        case 10:
-          // 00: init , 01:disable
-          switch (argv[1]) { //argv[1] = cmd;
-            case 0: //init receiver pin
-              setIRrecv(argv[2]);
-              irrecv->enableIRIn();
-              break;
-            case 1: //disable receiver pin
-              //irrecv = NULL;
-              break;
-          }
-          break;
         case 15:
           switch (argv[1]) { //argv[1] = cmd;
             case 0: // init RFID
@@ -510,28 +507,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
               break;
           }
           break;
-        case 20: //Joypad
-          switch (argv[1]) { //argv[1] = cmd;
-            case 0: //board.board.send([0xf0,0x04,0x14,1,0,1,0xf7]);
-              if (joypad == NULL) {
-                joypad = new Joypad();
-              }
-              joypad->init(argv[2], argv[3]);
-              break;
-            case 1: //board.board.send([0xf0,0x04,0x14,1,0,1,2,3,0xf7]);
-              if (joypad == NULL) {
-                joypad = new Joypad();
-              }
-              joypad->init(argv[2], argv[3], argv[4], argv[5]);
-              break;
-            case 2: //start
-              joypad->start();
-              break;
-            case 3: //stop
-              joypad->stop();
-              break;
-          }
-          break;
+
       }
       break;
     case I2C_REQUEST:
@@ -630,6 +606,22 @@ void sysexCallback(byte command, byte argc, byte *argv)
         enableI2CPins();
       }
 
+      break;
+    case SERVO_CONFIG:
+      if (argc > 4) {
+        // these vars are here for clarity, they'll optimized away by the compiler
+        byte pin = argv[0];
+        int minPulse = argv[1] + (argv[2] << 7);
+        int maxPulse = argv[3] + (argv[4] << 7);
+
+        if (IS_PIN_DIGITAL(pin)) {
+          if (servoPinMap[pin] < MAX_SERVOS && servos[servoPinMap[pin]].attached()) {
+            detachServo(pin);
+          }
+          attachServo(pin, minPulse, maxPulse);
+          setPinModeCallback(pin, SERVO);
+        }
+      }
       break;
     case SAMPLING_INTERVAL:
       if (argc > 1) {
@@ -760,10 +752,14 @@ void systemResetCallback()
       // sets the output to 0, configures portConfigInputs
       setPinModeCallback(i, OUTPUT);
     }
+
+    servoPinMap[i] = 255;
   }
   // by default, do not report any analog inputs
   analogInputsToReport = 0;
 
+  detachedServoCount = 0;
+  servoCount = 0;
 
   /* send digital inputs to set the initial state on the host computer,
      since once in the loop(), this firmware will only send on change */
@@ -812,12 +808,6 @@ void loop()
   /* DIGITALREAD - as fast as possible, check for changes and output them to the
      FTDI buffer using Serial.print()  */
   checkDigitalInputs();
-
-  if (joypad != NULL && joypad->state()) {
-    joypad->loop();
-  }
-
-  irReceiver();
 
   if (rfidEnable) {
     if (mfrc522->PICC_IsNewCardPresent() && mfrc522->PICC_ReadCardSerial()) {
