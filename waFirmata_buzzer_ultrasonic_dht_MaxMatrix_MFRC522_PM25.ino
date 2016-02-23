@@ -30,6 +30,7 @@
 #include <MaxMatrix.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include "EEPROM.h"
 #include <WAEEPROM.h>
 
 #define PIN_MODE_IGNORE         0x7F // pin configured to be ignored by digitalWrite and capabilityResponse
