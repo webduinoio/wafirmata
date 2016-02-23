@@ -32,6 +32,7 @@
 #include <MFRC522.h>
 #include <WAEEPROM.h>
 
+#define PIN_MODE_IGNORE         0x7F // pin configured to be ignored by digitalWrite and capabilityResponse
 #define I2C_WRITE                   B00000000
 #define I2C_READ                    B00001000
 #define I2C_READ_CONTINUOUSLY       B00010000
@@ -46,6 +47,8 @@
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL 10
+// pin configured to be ignored by digitalWrite and capabilityResponse
+#define PIN_MODE_IGNORE         0x7F
 
 
 /*==============================================================================

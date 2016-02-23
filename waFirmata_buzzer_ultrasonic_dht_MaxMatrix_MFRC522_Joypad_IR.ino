@@ -22,7 +22,6 @@
 
   Last updated by Jeff Hoefs: August 9th, 2015
 */
-
 #include <IRremote.h>
 #include <Wire.h>
 #include <Firmata.h>
@@ -46,6 +45,8 @@
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL 10
+// pin configured to be ignored by digitalWrite and capabilityResponse
+#define PIN_MODE_IGNORE         0x7F
 
 
 /*==============================================================================
