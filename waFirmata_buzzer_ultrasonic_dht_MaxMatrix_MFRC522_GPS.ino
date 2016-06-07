@@ -30,6 +30,8 @@
 #include <MaxMatrix.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
 
 #define I2C_WRITE                   B00000000
 #define I2C_READ                    B00001000
@@ -45,8 +47,6 @@
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL 10
-// pin configured to be ignored by digitalWrite and capabilityResponse
-#define PIN_MODE_IGNORE         0x7F
 
 
 /*==============================================================================
@@ -55,6 +55,8 @@
 dht DHT;
 MaxMatrix *mm;
 MFRC522 *mfrc522;
+TinyGPSPlus *gps;
+SoftwareSerial *ss;
 unsigned char strhex[17] = "0123456789ABCDEF";
 byte rfidTouchScan = 0;
 boolean rfidTouch = false;
@@ -484,6 +486,38 @@ void sysexCallback(byte command, byte argc, byte *argv)
               break;
           }
           break;
+        case 12:
+          // 0: init , 01: start , 02:stop , 03:sensitivity
+          switch (argv[1]) { //argv[1] = cmd;
+            case 0: //init GY291
+              Firmata.sendString("TinyGPS init...");
+              //check gps == null
+              if (gps == NULL) {
+                gps = new TinyGPSPlus();
+                ss = new SoftwareSerial(argv[2], argv[3]);
+              }
+              break;
+            case 1: //start
+              Firmata.sendString("start gps...");
+              ss->begin(9600);
+              break;
+            case 2: //stop
+              Firmata.sendString("shutdown GPS");
+              if (gps != NULL) {
+                delete ss;
+                delete gps;
+              }
+              break;
+            case 3: //get Lat,Lng
+              Firmata.sendString("get Lat,Lng...");
+              if (gps->location.isValid()) {
+                sendGPSLocation();
+              } else {
+                sendGPSLocation(); // for test
+              }
+              break;
+          }
+          break;
         case 15:
           switch (argv[1]) { //argv[1] = cmd;
             case 0: // init RFID
@@ -810,7 +844,11 @@ void loop()
   /* DIGITALREAD - as fast as possible, check for changes and output them to the
      FTDI buffer using Serial.print()  */
   checkDigitalInputs();
-
+  if (gps != NULL) {
+    while (ss->available() > 0) {
+      gps->encode(ss->read());
+    }
+  }
   if (rfidEnable) {
     if (mfrc522->PICC_IsNewCardPresent() && mfrc522->PICC_ReadCardSerial()) {
       if (!rfidTouch) {
@@ -875,4 +913,26 @@ byte asc2hex(byte * array) {
     b |= (*array - 0x30);
   }
   return b;
+}
+
+void sendGPSLocation() {
+  Firmata.write(0xf0);
+  Firmata.write(0x04);
+  Firmata.write(0x0c);
+  Firmata.write(0x03);
+  writeGPSLocation(gps->location.lat());
+  Firmata.write(',');
+  writeGPSLocation(gps->location.lng());
+  Firmata.write(0xf7);
+}
+
+void writeGPSLocation(double d) {
+  char str[12];
+  dtostrf(d, 0, 6, str);
+  for (int i = 0; i < 12; i++) {
+    if (str[i] == 0) {
+      return;
+    }
+    Firmata.write(str[i]);
+  }
 }

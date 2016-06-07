@@ -30,10 +30,11 @@
 #include <MaxMatrix.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include "EEPROM.h"
-#include <WAEEPROM.h>
+#include <Joypad.h>
+#include <GY291.h>
+#include <SoftwareSerial.h>
+#include <waG3.h>
 
-#define PIN_MODE_IGNORE         0x7F // pin configured to be ignored by digitalWrite and capabilityResponse
 #define I2C_WRITE                   B00000000
 #define I2C_READ                    B00001000
 #define I2C_READ_CONTINUOUSLY       B00010000
@@ -48,8 +49,6 @@
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL 10
-// pin configured to be ignored by digitalWrite and capabilityResponse
-#define PIN_MODE_IGNORE         0x7F
 
 
 /*==============================================================================
@@ -57,8 +56,11 @@
   ============================================================================*/
 dht DHT;
 MaxMatrix *mm;
+GY291 *gy291;
 MFRC522 *mfrc522;
-WAEEPROM io = WAEEPROM();
+Joypad *joypad;
+waG3 *g3;
+
 unsigned char strhex[17] = "0123456789ABCDEF";
 byte rfidTouchScan = 0;
 boolean rfidTouch = false;
@@ -488,6 +490,27 @@ void sysexCallback(byte command, byte argc, byte *argv)
               break;
           }
           break;
+        case 11:  // GY-291
+          // 0: init , 01: start , 02:stop , 03:sensitivity
+          switch (argv[1]) { //argv[1] = cmd;
+            case 0: //init GY291
+              gy291 = new GY291();
+              gy291->init();
+              break;
+            case 1: //start
+              gy291->start();
+              break;
+            case 2: //stop
+              gy291->stop();
+              break;
+            case 3: //sensitivity
+              gy291->sensitivity(argv[2]);
+              break;
+            case 5: //delay argv[2] * 10ms
+              gy291->delay(argv[2]);
+              break;
+          }
+          break;
         case 15:
           switch (argv[1]) { //argv[1] = cmd;
             case 0: // init RFID
@@ -514,23 +537,51 @@ void sysexCallback(byte command, byte argc, byte *argv)
           }
           break;
         case 16:
-          int data = 0;
+          // 0: init , 01: start , 02:stop , 03:sensitivity
           switch (argv[1]) { //argv[1] = cmd;
-            case 0: // readInt
-              data = io.readInt(argv[2]);
-              Firmata.write(START_SYSEX);
-              Firmata.write(4);
-              Firmata.write(16);
-              Firmata.write(0);
-              Firmata.write(argv[2]);
-              Firmata.write(data & 0xff);
-              Firmata.write(data >> 8);
-              Firmata.write(END_SYSEX);
+            case 0: //init GY291
+              g3 = new waG3(argv[2], argv[3]);
               break;
-            case 1: // writeInt
-              data = argv[4];
-              data = data << 8 | argv[3];
-              io.writeInt(argv[2], data);
+            case 1: //enable
+              g3->setEnable(true);
+              break;
+            case 2: //disable
+              g3->setEnable(false);
+              break;
+            case 3: //getSensorData
+              if (g3->isEnable()) {
+                String strData = g3->getData();
+                data = strData.length();
+                Firmata.write(START_SYSEX);
+                Firmata.write(4);
+                Firmata.write(16);
+                for (int i = 0; i < data; i++) {
+                  Firmata.write(strData.charAt(i));
+                }
+                Firmata.write(END_SYSEX);
+              }
+              break;
+          }
+          break;
+        case 20: //Joypad
+          switch (argv[1]) { //argv[1] = cmd;
+            case 0: //board.board.send([0xf0,0x04,0x14,1,0,1,0xf7]);
+              if (joypad == NULL) {
+                joypad = new Joypad();
+              }
+              joypad->init(argv[2], argv[3]);
+              break;
+            case 1: //board.board.send([0xf0,0x04,0x14,1,0,1,2,3,0xf7]);
+              if (joypad == NULL) {
+                joypad = new Joypad();
+              }
+              joypad->init(argv[2], argv[3], argv[4], argv[5]);
+              break;
+            case 2: //start
+              joypad->start();
+              break;
+            case 3: //stop
+              joypad->stop();
               break;
           }
           break;
@@ -834,6 +885,12 @@ void loop()
   /* DIGITALREAD - as fast as possible, check for changes and output them to the
      FTDI buffer using Serial.print()  */
   checkDigitalInputs();
+
+  if (gy291 != NULL) gy291->loop();
+
+  if (joypad != NULL && joypad->state()) {
+    joypad->loop();
+  }
 
   if (rfidEnable) {
     if (mfrc522->PICC_IsNewCardPresent() && mfrc522->PICC_ReadCardSerial()) {
