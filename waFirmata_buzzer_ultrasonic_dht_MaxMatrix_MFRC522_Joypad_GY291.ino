@@ -505,6 +505,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
             case 3: //sensitivity
               gy291->sensitivity(argv[2]);
               break;
+            case 4: //delay argv[2] ms
+              gy291->delay_ms(argv[2]);
+              break;
             case 5: //delay argv[2] * 10ms
               gy291->delay(argv[2]);
               break;
