@@ -506,6 +506,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
             case 3: //sensitivity
               gy291->sensitivity(argv[2]);
               break;
+            case 4: //delay argv[2] ms
+              gy291->delay_ms(argv[2]);
+              break;
             case 5: //delay argv[2] * 10ms
               gy291->delay(argv[2]);
               break;
@@ -540,7 +543,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
           // 0: init , 01: start , 02:stop , 03:sensitivity
           switch (argv[1]) { //argv[1] = cmd;
             case 0: //init GY291
-              g3 = new waG3(argv[2], argv[3]);
+              if (g3 == NULL) {
+                g3 = new waG3(argv[2], argv[3]);
+              }
               break;
             case 1: //enable
               g3->setEnable(true);
