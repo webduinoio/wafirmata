@@ -3,4 +3,6 @@
 
 
 ## License
-This project is licensed under the MIT license, please see [LICENSE](LICENSE) for more information.
+`wafirmata` is released under the MIT license.
+
+Please read [LICENSE](LICENSE) for more information.
