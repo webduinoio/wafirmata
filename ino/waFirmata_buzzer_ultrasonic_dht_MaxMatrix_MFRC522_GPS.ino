@@ -919,7 +919,6 @@ void sendGPSLocation() {
   Firmata.write(0xf0);
   Firmata.write(0x04);
   Firmata.write(0x0c);
-  Firmata.write(0x03);
   writeGPSLocation(gps->location.lat());
   Firmata.write(',');
   writeGPSLocation(gps->location.lng());
